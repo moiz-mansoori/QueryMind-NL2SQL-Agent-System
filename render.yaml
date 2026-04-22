@@ -6,6 +6,7 @@ services:
   # ── FastAPI Backend ─────────────────────────────
   - type: web
     name: querymind-backend
+    plan: free
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
