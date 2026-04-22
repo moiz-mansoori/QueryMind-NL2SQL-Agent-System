@@ -1,0 +1,51 @@
+services:
+  # ── PostgreSQL 15 with pgvector extension ───
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: querymind-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-querymind}
+      POSTGRES_USER: ${DB_USER:-querymind}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-querymind_secret}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-querymind} -d ${DB_NAME:-querymind}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - querymind-network
+
+  # ── FastAPI Backend ─────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: querymind-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+      - ./Dataset:/app/Dataset
+    networks:
+      - querymind-network
+
+networks:
+  querymind-network:
+    driver: bridge

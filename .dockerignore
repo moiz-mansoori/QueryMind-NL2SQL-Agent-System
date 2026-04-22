@@ -1,0 +1,30 @@
+# ── Virtual Environments ──
+venv/
+.venv/
+env/
+
+# ── Python Cache ──
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Data & Datasets ──
+data/
+Dataset/
+
+# ── Frontend (Not needed for Backend Docker) ──
+frontend/
+
+# ── Git & Environment ──
+.git/
+.gitignore
+.env
+.env.local
+
+# ── Testing & Docs ──
+tests/
+.pytest_cache/
+.coverage
+*.md
+render.yaml
+docker-compose.yml

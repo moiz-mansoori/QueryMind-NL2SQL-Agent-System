@@ -1,0 +1,56 @@
+# QueryMind — Render Blueprint
+# Deploy: Connect this repo to Render and it will auto-detect this file.
+# Docs: https://docs.render.com/blueprint-spec
+
+services:
+  # ── FastAPI Backend ─────────────────────────────
+  - type: web
+    name: querymind-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false  # Set manually in Render dashboard
+      - key: DB_URL
+        fromDatabase:
+          name: querymind-db
+          property: connectionURI
+      - key: DB_HOST
+        fromDatabase:
+          name: querymind-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: querymind-db
+          property: port
+      - key: DB_USER
+        fromDatabase:
+          name: querymind-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: querymind-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: querymind-db
+          property: database
+      - key: MAX_RETRIES
+        value: "3"
+      - key: RESULT_LIMIT
+        value: "500"
+      - key: EMBED_MODEL
+        value: "all-MiniLM-L6-v2"
+      - key: EMBED_DIMENSION
+        value: "384"
+    healthCheckPath: /health
+
+  # ── PostgreSQL + pgvector ───────────────────────
+databases:
+  - name: querymind-db
+    plan: free
+    databaseName: querymind
+    user: querymind
+    ipAllowList: []  # Allow all (required for free tier)
+    postgresMajorVersion: "15"

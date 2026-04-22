@@ -1,0 +1,1 @@
+# QueryMind Integration Tests Package

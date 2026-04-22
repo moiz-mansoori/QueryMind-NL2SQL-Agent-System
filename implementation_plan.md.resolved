@@ -1,0 +1,471 @@
+# QueryMind — Implementation Plan
+
+## Prompt & Dataset Analysis
+
+### ✅ What You've Given Me (Summary)
+
+| Aspect | Details |
+|--------|---------|
+| **Goal** | NL2SQL agent — user asks questions in English, system generates SQL, executes on real PostgreSQL, auto-corrects errors, logs everything |
+| **Stack** | LangGraph + Groq (LLaMA 3.3 70B) + PostgreSQL 15 + pgvector + FastAPI + Flask |
+| **Dataset** | Olist Brazilian E-Commerce — 9 CSV files already in `Dataset/` folder |
+| **Agent** | 8-node LangGraph stateful graph with self-correction loop (max 3 retries) |
+| **Backend** | FastAPI with async endpoints for query execution + analytics |
+| **Frontend** | Flask with Jinja2 templates (Query Interface + Dashboard + Trace Replay) |
+| **Testing** | pytest unit + integration + benchmark (20 queries) |
+| **Docker** | docker-compose with 3 services (postgres, backend, frontend) |
+| **4-Week Plan** | Provided via image — broken into Foundation → Core Logic → Interface → Production |
+
+### 📊 Dataset Analysis
+
+All **9 CSV files** are present in `d:\1 PROJECTS\QUERY-MIND\Dataset\`:
+
+| File | Size | Table Name (PostgreSQL) |
+|------|------|------------------------|
+| `olist_customers_dataset.csv` | 8.6 MB | `olist_customers` |
+| `olist_orders_dataset.csv` | 16.8 MB | `olist_orders` |
+| `olist_order_items_dataset.csv` | 14.7 MB | `olist_order_items` |
+| `olist_order_payments_dataset.csv` | 5.5 MB | `olist_order_payments` |
+| `olist_order_reviews_dataset.csv` | 13.8 MB | `olist_order_reviews` |
+| `olist_products_dataset.csv` | 2.3 MB | `olist_products` |
+| `olist_sellers_dataset.csv` | 171 KB | `olist_sellers` |
+| `olist_geolocation_dataset.csv` | 58.4 MB | `olist_geolocation` |
+| `product_category_name_translation.csv` | 2.5 KB | `product_category_translation` |
+
+**Key Relationships** (foreign keys to implement):
+```
+olist_orders.customer_id → olist_customers.customer_id
+olist_order_items.order_id → olist_orders.order_id
+olist_order_items.product_id → olist_products.product_id
+olist_order_items.seller_id → olist_sellers.seller_id
+olist_order_payments.order_id → olist_orders.order_id
+olist_order_reviews.order_id → olist_orders.order_id
+product_category_translation.product_category_name → olist_products.product_category_name
+```
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Embedding Dimension Correction**: Your spec says `vector(1536)` for `schema_embeddings`, but `all-MiniLM-L6-v2` produces **384-dimensional** vectors, not 1536. (1536 is OpenAI's `text-embedding-ada-002` dimension.) I will use `vector(384)` instead. If you want 1536, we'd need to switch to a different embedding model.
+
+> [!IMPORTANT]
+> **Frontend Change — Flask instead of Streamlit**: Your spec header says "Streamlit" but the detailed frontend section describes Flask with Jinja templates, routes, and custom CSS. The 4-week image also mentions "Streamlit" in some places. **I will build the Flask-based frontend as described in the detailed spec**, since it's more production-grade and aligns with the detailed requirements. Please confirm.
+
+> [!WARNING]
+> **Geolocation table (58 MB, ~1M rows)**: This is the largest CSV. The `olist_geolocation` table has no unique primary key — it uses `geolocation_zip_code_prefix` + lat/lng which has duplicates. I'll handle this by adding a serial `id` column as primary key and creating indexes on `zip_code_prefix`.
+
+> [!NOTE]
+> **9th table**: The dataset includes `product_category_name_translation.csv` (Portuguese → English translations). This is useful for the NL2SQL agent to translate category names. I'll include it as `product_category_translation` table.
+
+---
+
+## Architecture Overview
+
+```mermaid
+graph TD
+    subgraph "Frontend - Flask :5000"
+        A["/ Query Interface"]
+        B["/dashboard Observability"]
+        C["/trace Trace Replay"]
+    end
+
+    subgraph "Backend - FastAPI :8000"
+        D["POST /query"]
+        E["GET /analytics/*"]
+        F["POST /embeddings/rebuild"]
+    end
+
+    subgraph "LangGraph Agent Pipeline"
+        G["schema_retriever"] --> H["sql_generator"]
+        H --> I["sql_validator"]
+        I -->|valid| J["sql_executor"]
+        I -->|invalid| K["sql_corrector"]
+        J -->|success| L["result_formatter"]
+        J -->|error| K
+        K -->|retry < 3| I
+        K -->|retry >= 3| M["failure_handler"]
+        L --> N["query_logger"]
+        M --> N
+        N --> O["END"]
+    end
+
+    subgraph "Data Layer"
+        P[(PostgreSQL 15 + pgvector)]
+        Q["8 Olist Tables"]
+        R["query_logs"]
+        S["schema_embeddings"]
+    end
+
+    A & B & C --> D & E
+    D --> G
+    G --> P
+    J --> P
+    N --> R
+    G --> S
+```
+
+---
+
+## Proposed Changes — Week-by-Week Build Plan
+
+### Week 1: Database + Schema Layer (Foundation)
+
+---
+
+#### Day 1-2: PostgreSQL Setup + Data Import
+
+##### [NEW] [docker-compose.yml](file:///d:/1%20PROJECTS/QUERY-MIND/docker-compose.yml)
+- PostgreSQL 15 with pgvector extension
+- Backend and frontend service definitions
+- Volume mounts for persistent data
+
+##### [NEW] [.env.example](file:///d:/1%20PROJECTS/QUERY-MIND/.env.example)
+- Template for environment variables (DB_URL, GROQ_API_KEY, etc.)
+
+##### [NEW] [backend/db/connection.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/db/connection.py)
+- asyncpg connection pool setup
+- Pool lifecycle management (init/close)
+- pgvector extension registration
+
+##### [NEW] [backend/db/models.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/db/models.py)
+- SQL DDL for all 10 tables (8 Olist + query_logs + schema_embeddings)
+- Foreign key definitions
+- Index creation on join columns
+- `query_logs` table with all specified columns
+- `schema_embeddings` table with `vector(384)` column
+
+##### [NEW] [backend/db/seed.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/db/seed.py)
+- CSV import script using asyncpg `COPY` for bulk loading
+- Schema creation (DDL execution)
+- Foreign key + index setup
+- Handles all 9 CSV files → 9 Olist tables
+- Generates schema embeddings using `sentence-transformers` (`all-MiniLM-L6-v2`)
+- Creates human-readable descriptions for each table.column pair
+- Stores embeddings in `schema_embeddings` via pgvector
+
+##### [NEW] [backend/config.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/config.py)
+- Environment variable loading via `python-dotenv`
+- All config: DB_URL, GROQ_API_KEY, MAX_RETRIES, RESULT_LIMIT, EMBED_MODEL
+
+---
+
+#### Day 3: Schema Embeddings + Retriever
+
+##### [NEW] [backend/agents/state.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/agents/state.py)
+- `QueryState` TypedDict with all fields:
+  - `user_question`, `retrieved_schema`, `generated_sql`, `final_sql`
+  - `result_data`, `error_message`, `retry_count`, `latency_ms`
+  - `success`, `final_answer`, `start_time`
+
+##### [NEW] [backend/agents/nodes.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/agents/nodes.py) (partial — schema_retriever only in Week 1)
+- `schema_retriever` node function:
+  - Embeds user question using `sentence-transformers`
+  - Cosine similarity search against `schema_embeddings` in pgvector
+  - Returns top-5 relevant tables + columns with descriptions
+  - Populates `retrieved_schema` in state
+
+---
+
+#### Day 4-5: FastAPI Scaffold + Schema Retriever Testing
+
+##### [NEW] [backend/main.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/main.py)
+- FastAPI app initialization
+- CORS middleware setup
+- Router mounting
+- Startup/shutdown lifecycle (asyncpg pool)
+
+##### [NEW] [backend/requirements.txt](file:///d:/1%20PROJECTS/QUERY-MIND/backend/requirements.txt)
+- All pinned dependencies:
+  - `fastapi`, `uvicorn`, `asyncpg`, `python-dotenv`
+  - `langgraph`, `groq`, `sqlglot`
+  - `sentence-transformers`, `pgvector`
+  - `pytest`, `httpx` (for testing)
+
+**Week 1 Deliverable**: PostgreSQL running locally, all 10 tables populated, schema_retriever working for any question.
+
+---
+
+### Week 2: Agent Core + Self-Correction Loop (Core Logic)
+
+---
+
+#### Day 1: SQL Generator Node
+
+##### [MODIFY] [backend/agents/nodes.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/agents/nodes.py)
+- Add `sql_generator` node:
+  - Builds structured prompt with: question + schema context + SQL dialect instructions
+  - Calls Groq API (`llama-3.3-70b-versatile`) via `AsyncGroq`
+  - Prompt enforces: return ONLY valid SQL, no markdown, no backticks
+  - Populates `generated_sql` in state
+
+---
+
+#### Day 2: Validator + Executor Nodes
+
+##### [MODIFY] [backend/agents/nodes.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/agents/nodes.py)
+- Add `sql_validator` node:
+  - Parse SQL using `sqlglot` library
+  - Block dangerous keywords: DROP, DELETE, TRUNCATE, ALTER, UPDATE
+  - Verify all referenced tables exist in known schema
+  - Returns `is_valid` bool + `validation_error`
+
+- Add `sql_executor` node:
+  - Execute SQL on PostgreSQL via asyncpg
+  - Auto-add `LIMIT 500` if missing
+  - Wrap in try/except for runtime error capture
+  - Return `result_data` (list of dicts) or `execution_error`
+
+---
+
+#### Day 3: Corrector + Failure Handler Nodes
+
+##### [MODIFY] [backend/agents/nodes.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/agents/nodes.py)
+- Add `sql_corrector` node:
+  - Calls Groq with correction prompt including: original question + failed SQL + error message + schema context
+  - Increments `retry_count`
+  - Returns corrected SQL
+
+- Add `failure_handler` node:
+  - Activates when `retry_count >= 3`
+  - Returns clear failure message explaining what went wrong
+
+---
+
+#### Day 4-5: Full Graph Assembly + Logger + Formatter
+
+##### [NEW] [backend/agents/graph.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/agents/graph.py)
+- LangGraph `StateGraph` definition with `QueryState`
+- All 8 nodes registered
+- Conditional edges:
+  - `sql_validator` → executor (valid) or corrector (invalid)
+  - `sql_executor` → formatter (success) or corrector (error)
+  - `sql_corrector` → validator (retry < 3) or failure_handler (retry >= 3)
+- `result_formatter` → `query_logger` → END
+- `failure_handler` → `query_logger` → END
+- Graph compilation
+
+##### [MODIFY] [backend/agents/nodes.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/agents/nodes.py)
+- Add `result_formatter` node:
+  - Calls Groq to produce natural language summary (2-3 sentences)
+  - Populates `final_answer` + `result_data`
+
+- Add `query_logger` node:
+  - Inserts row into `query_logs` with all metrics
+  - Calculates `latency_ms` from `start_time`
+
+**Week 2 Deliverable**: Full agent graph working, self-correction tested, every query logged in PostgreSQL.
+
+---
+
+### Week 3: FastAPI Endpoints + Flask Frontend (Interface)
+
+---
+
+#### Day 1-2: API Endpoints
+
+##### [NEW] [backend/api/query.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/api/query.py)
+- `POST /query` — accepts `{"question": "string"}`, invokes LangGraph pipeline, returns full response with answer, SQL, rows, retries, latency, success
+
+##### [NEW] [backend/api/analytics.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/api/analytics.py)
+- `GET /analytics/summary` — total queries, success rate, avg retries, avg latency
+- `GET /analytics/history?limit=50` — recent query_logs rows
+- `GET /analytics/failures` — failed queries with error messages
+- `GET /analytics/slow-queries?threshold_ms=2000` — slow queries
+
+##### [NEW] [backend/api/embeddings.py](file:///d:/1%20PROJECTS/QUERY-MIND/backend/api/embeddings.py)
+- `POST /embeddings/rebuild` — admin endpoint to regenerate schema embeddings
+
+---
+
+#### Day 3-5: Flask Frontend
+
+##### [NEW] [frontend/app.py](file:///d:/1%20PROJECTS/QUERY-MIND/frontend/app.py)
+- Flask app with 3 routes: `/`, `/dashboard`, `/trace`
+- Backend API communication via `requests`
+
+##### [NEW] [frontend/templates/base.html](file:///d:/1%20PROJECTS/QUERY-MIND/frontend/templates/base.html)
+- Base layout with dark theme CSS
+- Navigation bar
+- Chart.js CDN include
+
+##### [NEW] [frontend/templates/query.html](file:///d:/1%20PROJECTS/QUERY-MIND/frontend/templates/query.html)
+- Query Interface page:
+  - Text input for natural language question
+  - Submit button (POST to backend API)
+  - Result display: answer (green alert), SQL (code block), table, metrics
+
+##### [NEW] [frontend/templates/dashboard.html](file:///d:/1%20PROJECTS/QUERY-MIND/frontend/templates/dashboard.html)
+- Observability Dashboard:
+  - 4 metric cards (Total Queries, Success Rate, Avg Retries, Avg Latency)
+  - Line chart: queries per day (last 7 days)
+  - Bar chart: success vs failure by day
+  - Full query history table with colored badges
+
+##### [NEW] [frontend/templates/trace.html](file:///d:/1%20PROJECTS/QUERY-MIND/frontend/templates/trace.html)
+- Trace Replay page:
+  - Dropdown to select past queries
+  - Step-by-step pipeline display in collapsible cards
+  - Shows inputs/outputs for each agent node
+
+##### [NEW] [frontend/static/css/style.css](file:///d:/1%20PROJECTS/QUERY-MIND/frontend/static/css/style.css)
+- Dark theme: `#0A0A0F` background, `#111118` cards, `#E8E8F0` text, `#00D4FF` accent
+- SaaS-style clean modern layout
+- Responsive design
+
+##### [NEW] [frontend/static/js/main.js](file:///d:/1%20PROJECTS/QUERY-MIND/frontend/static/js/main.js)
+- fetch() calls to FastAPI backend
+- Chart.js initialization for dashboard
+- Trace replay dropdown interaction
+
+##### [NEW] [frontend/requirements.txt](file:///d:/1%20PROJECTS/QUERY-MIND/frontend/requirements.txt)
+- Flask, requests, python-dotenv
+
+**Week 3 Deliverable**: Working web app, query interface + dashboard functional, visible data in charts.
+
+---
+
+### Week 4: Testing + Trace Replay + Docker (Production-Ready)
+
+---
+
+#### Day 1: Unit Tests
+
+##### [NEW] [tests/unit/test_sql_validator.py](file:///d:/1%20PROJECTS/QUERY-MIND/tests/unit/test_sql_validator.py)
+- Valid SELECT passes
+- DROP TABLE is blocked
+- Nonexistent table fails
+- Missing WHERE clause doesn't block
+
+##### [NEW] [tests/unit/test_sql_generator.py](file:///d:/1%20PROJECTS/QUERY-MIND/tests/unit/test_sql_generator.py)
+- Mock Groq API response
+- Output is valid SQL string
+- Prompt contains schema context
+
+##### [NEW] [tests/unit/test_nodes.py](file:///d:/1%20PROJECTS/QUERY-MIND/tests/unit/test_nodes.py)
+- Each node function with mocked inputs
+- retry_count increments correctly
+- MAX_RETRIES=3 triggers failure_handler
+
+---
+
+#### Day 2: Benchmark
+
+##### [NEW] [tests/benchmark/benchmark_queries.py](file:///d:/1%20PROJECTS/QUERY-MIND/tests/benchmark/benchmark_queries.py)
+- 20 test questions covering: simple SELECT, multi-table JOIN, GROUP BY, subquery, date filtering
+- Records success/fail, retries, latency per query
+- Generates `benchmark_report.json` with pass rate %
+
+---
+
+#### Day 3: Integration Tests
+
+##### [NEW] [tests/integration/test_full_pipeline.py](file:///d:/1%20PROJECTS/QUERY-MIND/tests/integration/test_full_pipeline.py)
+- End-to-end with mocked Groq + real PostgreSQL
+- Self-correction triggers on injected bad SQL
+- query_logs row inserted after each run
+- failure_handler activates after 3 retries
+
+---
+
+#### Day 4-5: Docker + README
+
+##### [MODIFY] [docker-compose.yml](file:///d:/1%20PROJECTS/QUERY-MIND/docker-compose.yml)
+- Finalize 3-service setup (postgres, backend, frontend)
+
+##### [NEW] [backend/Dockerfile](file:///d:/1%20PROJECTS/QUERY-MIND/backend/Dockerfile)
+- Python 3.11 base, install requirements, copy code, expose 8000
+
+##### [NEW] [frontend/Dockerfile](file:///d:/1%20PROJECTS/QUERY-MIND/frontend/Dockerfile)
+- Python 3.11 base, install requirements, copy code, expose 5000
+
+##### [NEW] [README.md](file:///d:/1%20PROJECTS/QUERY-MIND/README.md)
+- Project overview + architecture diagram
+- Setup instructions (Docker + local)
+- Benchmark results table
+- API documentation
+
+**Week 4 Deliverable**: Full project Dockerized, tests passing, benchmark results in README.
+
+---
+
+## Pinned Dependencies Plan
+
+```
+# backend/requirements.txt
+fastapi==0.115.6
+uvicorn==0.34.0
+asyncpg==0.30.0
+python-dotenv==1.0.1
+langgraph==0.2.60
+groq==0.15.0
+sqlglot==26.4.0
+sentence-transformers==3.3.1
+pgvector==0.3.6
+httpx==0.28.1
+pytest==8.3.4
+pytest-asyncio==0.25.0
+
+# frontend/requirements.txt
+flask==3.1.0
+requests==2.32.3
+python-dotenv==1.0.1
+```
+
+> [!NOTE]
+> Exact pinned versions will be confirmed at install time. The above are latest stable as of early 2026.
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **1. Flask vs Streamlit**: Your detailed spec describes Flask + Jinja templates (which I recommend — it's more production-grade). But your 4-week image mentions "Streamlit" in Week 3 and 4. **Which do you prefer?** I'm proceeding with Flask as described in the detailed spec.
+
+> [!IMPORTANT]
+> **2. Embedding Dimension**: Confirming: `all-MiniLM-L6-v2` → `vector(384)`. Your spec said `vector(1536)`. I'll use 384. OK?
+
+> [!NOTE]
+> **3. Trace Replay Backend**: The spec doesn't include a dedicated `/trace` API endpoint. I'll need to add `GET /analytics/trace/{query_id}` to return the full execution trace. I'll store trace data as a JSON column in `query_logs` (adding a `trace_data` column).
+
+> [!NOTE]
+> **4. Geolocation PK**: The geolocation CSV has no unique key. I'll add an auto-increment `id` as primary key and index on `geolocation_zip_code_prefix`.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- `pytest tests/unit/` — all unit tests pass
+- `pytest tests/integration/` — full pipeline with mocked Groq + real PG
+- `python tests/benchmark/benchmark_queries.py` — 20 queries, generate report
+
+### Manual Verification
+- Run `docker-compose up` and verify all 3 services start
+- Test query interface with 5+ natural language questions
+- Verify dashboard charts populate with real data
+- Verify trace replay shows step-by-step execution
+- Verify self-correction loop works (inject bad SQL, see retry)
+
+### Browser Testing
+- Use browser tool to navigate Flask frontend and verify all 3 pages render correctly
+- Test query submission flow end-to-end
+- Verify dark theme and responsive layout
+
+---
+
+## Execution Approach
+
+Per your instruction: **"Build one component at a time."**
+
+I will start with **Week 1, Day 1-2** (Database + Schema Layer) and confirm it works before proceeding. The build order will be:
+
+1. `docker-compose.yml` (PostgreSQL + pgvector)
+2. `.env.example` + `backend/config.py`
+3. `backend/db/connection.py` (asyncpg pool)
+4. `backend/db/models.py` (DDL for all tables)
+5. `backend/db/seed.py` (CSV import + embedding generation)
+6. Test: verify all tables populated, run similarity search manually
+
+Then we proceed to Week 1, Day 3-5, and so on.

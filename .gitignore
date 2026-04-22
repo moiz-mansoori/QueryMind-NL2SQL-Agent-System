@@ -1,0 +1,54 @@
+# ── Python ────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual Environment ──────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Environment Variables ────────────────────
+.env
+.env.local
+.env.production
+
+# ── IDE ──────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Docker Volumes ───────────────────────────
+data/postgres/
+
+# ── OS ───────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Test / Coverage ──────────────────────────
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ── Model Cache ──────────────────────────────
+models_cache/
+
+# ── Benchmark Output ────────────────────────
+benchmark_report.json
+
+# ── Logs ─────────────────────────────────────
+*.log
+logs/
+
+# ── Reports ──────────────────────────────────
+progress_report.md
