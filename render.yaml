@@ -15,7 +15,7 @@ services:
       - key: DB_URL
         fromDatabase:
           name: querymind-db
-          property: connectionURI
+          property: connectionString
       - key: DB_HOST
         fromDatabase:
           name: querymind-db
