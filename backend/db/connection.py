@@ -46,6 +46,14 @@ async def create_pool() -> asyncpg.Pool:
         return _pool
 
     try:
+        # First, establish a temporary connection to ensure the vector extension exists.
+        # This is required for managed databases (like Render) where init.sql doesn't run automatically.
+        logger.info("Ensuring pgvector extension exists...")
+        conn = await asyncpg.connect(dsn=DB_URL)
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+        await conn.close()
+        
+        # Now create the actual pool
         _pool = await asyncpg.create_pool(
             dsn=DB_URL,
             min_size=DB_MIN_POOL_SIZE,
