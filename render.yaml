@@ -9,7 +9,7 @@ services:
     plan: free
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    dockerContext: .
     envVars:
       - key: GROQ_API_KEY
         sync: false  # Set manually in Render dashboard

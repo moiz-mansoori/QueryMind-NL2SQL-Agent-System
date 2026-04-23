@@ -417,12 +417,13 @@ async def import_csv(
 
 
 
-async def import_all_csvs(conn: asyncpg.Connection) -> dict:
+async def import_all_csvs(conn: asyncpg.Connection, skip_geolocation: bool = False) -> dict:
     """
     Import all Olist CSV files into PostgreSQL in dependency order.
 
     Args:
         conn: Active asyncpg connection.
+        skip_geolocation: If True, skip the heavy geolocation table (1M+ rows).
 
     Returns:
         dict: Mapping of table names to row counts.
@@ -431,6 +432,10 @@ async def import_all_csvs(conn: asyncpg.Connection) -> dict:
     results = {}
 
     for csv_filename in IMPORT_ORDER:
+        if skip_geolocation and csv_filename == "olist_geolocation_dataset.csv":
+            logger.info("  Skipping olist_geolocation_dataset.csv (skip_geolocation=True)")
+            continue
+            
         config = CSV_TABLE_MAP[csv_filename]
         count = await import_csv(conn, csv_filename, config)
         results[config["table"]] = count

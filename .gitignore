@@ -52,3 +52,14 @@ logs/
 
 # ── Reports ──────────────────────────────────
 progress_report.md
+
+# ── Node.js / Frontend ───────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+frontend/.next/
+frontend/out/
+frontend/build/
+.vercel/

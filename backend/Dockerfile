@@ -8,11 +8,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker layer caching
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source code
-COPY . .
+COPY backend/ .
+
+# Copy dataset for database seeding
+COPY Dataset/ ./Dataset/
 
 # Expose the port Render will use
 EXPOSE 8000

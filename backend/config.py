@@ -57,7 +57,7 @@ BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 # ── Paths ────────────────────────────────────────────────
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
-DATASET_DIR: Path = PROJECT_ROOT / "Dataset"
+DATASET_DIR: Path = Path(os.getenv("DATASET_DIR", str(PROJECT_ROOT / "Dataset")))
 
 # ── Known Schema (for validation) ────────────────────────
 KNOWN_TABLES: set = {

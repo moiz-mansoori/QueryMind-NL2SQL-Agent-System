@@ -22,16 +22,27 @@ class RebuildResponse(BaseModel):
 @router.post("/rebuild", response_model=RebuildResponse)
 async def rebuild_embeddings() -> RebuildResponse:
     """
-    Rebuild the schema_embeddings table.
-    - Generates descriptions.
-    - Truncates existing schema_embeddings and inserts new vectors.
+    Rebuild the entire database and schema embeddings.
+    - Creates tables (if not exist).
+    - Imports CSV data (skips heavy geolocation on production).
+    - Generates and stores schema embeddings.
     """
-    logger.info("Received request to rebuild schema embeddings.")
+    from db.seed import create_schema, import_all_csvs, generate_embeddings
+    
+    logger.info("Received request to rebuild database and embeddings.")
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
+            # 1. Ensure tables exist
+            await create_schema(conn)
+            
+            # 2. Import CSV data (Skip geolocation to avoid Render OOM)
+            await import_all_csvs(conn, skip_geolocation=True)
+            
+            # 3. Generate embeddings
             count = await generate_embeddings(conn)
-        logger.info(f"Successfully rebuilt {count} schema embeddings.")
+            
+        logger.info(f"Successfully initialized database with {count} schema embeddings.")
         return RebuildResponse(status="success", embeddings_count=count)
     except Exception as e:
         logger.error(f"Failed to rebuild embeddings: {e}")
