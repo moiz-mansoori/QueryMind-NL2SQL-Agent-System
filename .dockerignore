@@ -10,7 +10,6 @@ __pycache__/
 
 # ── Data & Datasets ──
 data/
-Dataset/
 
 # ── Frontend (Not needed for Backend Docker) ──
 frontend/

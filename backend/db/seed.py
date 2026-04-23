@@ -326,18 +326,19 @@ async def import_csv(
     conn: asyncpg.Connection,
     csv_filename: str,
     config: dict,
+    batch_size: int = 5000,
 ) -> int:
     """
-    Import a single CSV file into its corresponding PostgreSQL table.
+    Import a single CSV file into its corresponding PostgreSQL table in batches.
 
     Uses Python's csv.reader to correctly handle multiline text fields
-    (e.g. review comments) and then streams rows via
-    ``conn.copy_records_to_table`` for fast bulk insertion.
+    and streams rows in batches to avoid exceeding memory limits (OOM).
 
     Args:
         conn: Active asyncpg connection.
         csv_filename: Name of the CSV file in the Dataset directory.
-        config: Table config dict with 'table', 'columns', optional 'has_serial_id'.
+        config: Table config dict.
+        batch_size: Number of rows to insert per batch.
 
     Returns:
         int: Number of rows imported.
@@ -350,20 +351,17 @@ async def import_csv(
     table_name = config["table"]
     columns = config["columns"]
 
-    logger.info("  Importing %s → %s ...", csv_filename, table_name)
+    logger.info("  Importing %s → %s (batch size: %d) ...", csv_filename, table_name, batch_size)
     start = time.time()
+    total_rows = 0
 
     try:
-        # Get the type map for this table
         type_map = COLUMN_TYPES.get(table_name, {})
 
-        # Read all rows via Python csv module (handles multiline fields)
-        records = []
-        with open(csv_path, "r", encoding="utf-8-sig") as f:  # utf-8-sig strips BOM
+        with open(csv_path, "r", encoding="utf-8-sig") as f:
             reader = csv.reader(f)
-            header = next(reader)  # skip header
+            header = next(reader)
 
-            # Build column index mapping (CSV col order → our col order)
             col_indices = []
             for col in columns:
                 try:
@@ -372,31 +370,48 @@ async def import_csv(
                     logger.error("  Column '%s' not found in CSV header: %s", col, header)
                     return 0
 
+            batch_records = []
             for row in reader:
                 if len(row) < len(header):
-                    continue  # skip malformed rows
+                    continue
+                
                 record = []
                 for i, idx in enumerate(col_indices):
                     raw_val = row[idx]
                     col_name = columns[i]
                     col_type = type_map.get(col_name, "str")
                     record.append(_coerce(raw_val, col_type))
-                records.append(tuple(record))
+                
+                batch_records.append(tuple(record))
 
-        # Bulk insert via copy_records_to_table
-        result = await conn.copy_records_to_table(
-            table_name,
-            records=records,
-            columns=columns,
-        )
-        row_count = int(result.split()[-1])
+                # When batch is full, insert it
+                if len(batch_records) >= batch_size:
+                    await conn.copy_records_to_table(
+                        table_name,
+                        records=batch_records,
+                        columns=columns,
+                    )
+                    total_rows += len(batch_records)
+                    batch_records = [] # Clear memory
+                    if total_rows % 50000 == 0:
+                        logger.info("    ... imported %d rows so far", total_rows)
+
+            # Insert any remaining records
+            if batch_records:
+                await conn.copy_records_to_table(
+                    table_name,
+                    records=batch_records,
+                    columns=columns,
+                )
+                total_rows += len(batch_records)
+
         elapsed = time.time() - start
-        logger.info("  ✓ %s: %d rows imported in %.1fs", table_name, row_count, elapsed)
-        return row_count
+        logger.info("  ✓ %s: %d rows imported in %.1fs", table_name, total_rows, elapsed)
+        return total_rows
 
     except Exception as e:
         logger.error("  Import failed for %s: %s", table_name, e)
-        return 0
+        return total_rows
 
 
 
