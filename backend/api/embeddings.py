@@ -16,6 +16,30 @@ logger = logging.getLogger("querymind.api.embeddings")
 router = APIRouter(tags=["embeddings"])
 
 
+@router.get("/debug")
+async def debug_dataset():
+    """Diagnostic: check if Dataset directory and CSV files exist."""
+    import os
+    from config import DATASET_DIR
+    path = str(DATASET_DIR)
+    exists = os.path.exists(path)
+    files = os.listdir(path) if exists else []
+    cwd = os.getcwd()
+    # Also check /app/Dataset directly
+    alt_path = "/app/Dataset"
+    alt_exists = os.path.exists(alt_path)
+    alt_files = os.listdir(alt_path) if alt_exists else []
+    return {
+        "dataset_dir": path,
+        "exists": exists,
+        "files": files,
+        "cwd": cwd,
+        "alt_path": alt_path,
+        "alt_exists": alt_exists,
+        "alt_files": alt_files,
+    }
+
+
 class SeedResponse(BaseModel):
     status: str
     message: str
