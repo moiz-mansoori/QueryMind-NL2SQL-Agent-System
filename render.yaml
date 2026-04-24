@@ -45,6 +45,8 @@ services:
         value: "all-MiniLM-L6-v2"
       - key: EMBED_DIMENSION
         value: "384"
+      - key: DATASET_DIR
+        value: "/app/Dataset"
     healthCheckPath: /health
 
   # ── PostgreSQL + pgvector ───────────────────────
