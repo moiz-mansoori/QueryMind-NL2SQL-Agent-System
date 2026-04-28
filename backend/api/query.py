@@ -54,7 +54,7 @@ class QueryResponse(BaseModel):
     )
 
 
-from main import limiter
+from utils.limiter import limiter
 
 # ── Route ────────────────────────────────────────────────
 
