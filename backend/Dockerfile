@@ -20,6 +20,9 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 # Copy backend source code
 COPY backend/ .
 
+# Copy dataset for database seeding on Render
+COPY Dataset/ ./Dataset/
+
 # Expose the port Render will use
 EXPOSE 8000
 
