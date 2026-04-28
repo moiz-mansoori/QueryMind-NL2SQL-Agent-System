@@ -14,11 +14,11 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Bake the SentenceTransformer model into the image to reduce cold-start time
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
 # Copy backend source code
 COPY backend/ .
-
-# Copy dataset for database seeding
-COPY Dataset/ ./Dataset/
 
 # Expose the port Render will use
 EXPOSE 8000

@@ -19,19 +19,21 @@ import time
 import logging
 from typing import Dict, Any
 
+import asyncio
 import sqlglot
 from groq import AsyncGroq
 
 from sentence_transformers import SentenceTransformer
 
-from db.connection import get_pool
+from db.connection import get_pool, get_db_tables
 from agents.state import QueryState
-from config import EMBED_MODEL, GROQ_API_KEY, GROQ_MODEL, KNOWN_TABLES, RESULT_LIMIT, MAX_RETRIES
+from config import EMBED_MODEL, GROQ_API_KEY, GROQ_MODEL, FALLBACK_KNOWN_TABLES, RESULT_LIMIT, MAX_RETRIES
 
 logger = logging.getLogger("querymind.agents.nodes")
 
 # Global Model Cache
 _embed_model = None
+_groq_client = None
 
 def get_embed_model() -> SentenceTransformer:
     """Lazy load the sentence-transformers model to save memory."""
@@ -40,6 +42,26 @@ def get_embed_model() -> SentenceTransformer:
         logger.info("Loading embedding model %s ...", EMBED_MODEL)
         _embed_model = SentenceTransformer(EMBED_MODEL)
     return _embed_model
+
+
+def get_groq_client() -> AsyncGroq:
+    """Get or create a singleton AsyncGroq client."""
+    global _groq_client
+    if _groq_client is None:
+        if not GROQ_API_KEY:
+            logger.error("GROQ_API_KEY is missing!")
+        _groq_client = AsyncGroq(api_key=GROQ_API_KEY)
+    return _groq_client
+
+
+async def preload_models():
+    """Preload models in a separate thread to avoid blocking startup."""
+    logger.info("Preloading models (Embedding + Groq)...")
+    # Preload SentenceTransformer in a thread pool
+    await asyncio.to_thread(get_embed_model)
+    # Init Groq client
+    get_groq_client()
+    logger.info("Models preloaded successfully.")
 
 
 async def schema_retriever(state: QueryState) -> Dict[str, Any]:
@@ -240,7 +262,7 @@ async def sql_generator(state: QueryState) -> Dict[str, Any]:
 
     # Call Groq API
     try:
-        client = AsyncGroq(api_key=GROQ_API_KEY)
+        client = get_groq_client()
         response = await client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
@@ -355,7 +377,13 @@ async def sql_validator(state: QueryState) -> Dict[str, Any]:
             if table_name:
                 referenced_tables.add(table_name.lower())
 
-    known_lower = {t.lower() for t in KNOWN_TABLES}
+    # Use dynamic schema discovery
+    db_tables = await get_db_tables()
+    if not db_tables:
+        logger.warning("Dynamic schema discovery failed, using fallback tables")
+        db_tables = FALLBACK_KNOWN_TABLES
+
+    known_lower = {t.lower() for t in db_tables}
     unknown_tables = referenced_tables - known_lower
 
     if unknown_tables:
@@ -488,7 +516,7 @@ async def sql_corrector(state: QueryState) -> Dict[str, Any]:
     schema_text = _format_schema_for_prompt(schema)
 
     correction_prompt = (
-        "The following SQL query failed with an error.\n\n"
+        "The following SQL query failed. This is a RETRY after a previous failure.\n\n"
         f"Original question: {question}\n"
         f"Failed SQL: {failed_sql}\n"
         f"Error: {error_msg}\n\n"
@@ -499,10 +527,11 @@ async def sql_corrector(state: QueryState) -> Dict[str, Any]:
         "- No markdown, no backticks, no explanation\n"
         "- Use only the tables and columns provided in the schema\n"
         "- Fix the specific error mentioned above\n"
+        "- IMPORTANT: Do not repeat the same mistake as the Failed SQL above.\n"
     )
 
     try:
-        client = AsyncGroq(api_key=GROQ_API_KEY)
+        client = get_groq_client()
         response = await client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
@@ -627,15 +656,26 @@ async def result_formatter(state: QueryState) -> Dict[str, Any]:
 
     logger.info("Formatting results for: %s (%d rows)", question, len(result_data))
 
-    # Build a concise summary of the results (limit to first 20 rows to
-    # avoid blowing up the prompt)
-    results_preview = result_data[:20]
+    # Build a concise summary of the results (limit to first 10 rows and 
+    # truncate cell values to avoid blowing up the prompt)
+    results_preview = []
+    for row in result_data[:10]:
+        clean_row = {}
+        for k, v in row.items():
+            # Truncate long strings in cells
+            val = str(v)
+            if len(val) > 100:
+                val = val[:97] + "..."
+            clean_row[k] = val
+        results_preview.append(clean_row)
+
     results_text = json.dumps(results_preview, indent=2, default=str)
-    if len(result_data) > 20:
-        results_text += f"\n... and {len(result_data) - 20} more rows"
+    
+    if len(result_data) > 10:
+        results_text += f"\n... and {len(result_data) - 10} more rows"
 
     try:
-        client = AsyncGroq(api_key=GROQ_API_KEY)
+        client = get_groq_client()
         response = await client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[

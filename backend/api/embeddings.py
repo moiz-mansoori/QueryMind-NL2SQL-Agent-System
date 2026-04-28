@@ -1,22 +1,24 @@
-"""
-QueryMind Embeddings API Router
-
-Provides admin endpoints to initialize the database and regenerate schema embeddings.
-Split into two steps to avoid OOM on Render Free Tier (512MB RAM limit).
-"""
-
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
 
 from db.connection import get_pool
+from config import ADMIN_SECRET
 
 logger = logging.getLogger("querymind.api.embeddings")
 
 router = APIRouter(tags=["embeddings"])
 
 
-@router.get("/debug")
+async def verify_admin(x_api_key: str = Header(None)):
+    """Simple API key authentication for admin endpoints."""
+    if not x_api_key or x_api_key != ADMIN_SECRET:
+        logger.warning("Unauthorized admin access attempt")
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    return True
+
+
+@router.get("/debug", dependencies=[Depends(verify_admin)])
 async def debug_dataset():
     """Diagnostic: check if Dataset directory and CSV files exist."""
     import os
@@ -52,19 +54,42 @@ class RebuildResponse(BaseModel):
     embeddings_count: int
 
 
-@router.post("/seed", response_model=SeedResponse)
+@router.post("/seed", response_model=SeedResponse, dependencies=[Depends(verify_admin)])
 async def seed_database() -> SeedResponse:
     """
     Step 1: Create tables and import CSV data.
+    Truncates existing data first so it's safe to call multiple times.
     Does NOT load the AI model, so it stays under 512MB.
     """
     from db.seed import create_schema, import_all_csvs
+
+    # Tables to truncate before re-importing (reverse dependency order)
+    TRUNCATE_TABLES = [
+        "olist_order_reviews",
+        "olist_order_payments",
+        "olist_order_items",
+        "olist_geolocation",
+        "product_category_translation",
+        "olist_orders",
+        "olist_sellers",
+        "olist_products",
+        "olist_customers",
+    ]
 
     logger.info("Step 1/2: Creating schema and importing CSV data...")
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
+            # Create tables if they don't exist
             await create_schema(conn)
+
+            # Truncate all data tables to avoid duplicate key errors
+            logger.info("Truncating existing data tables...")
+            for table in TRUNCATE_TABLES:
+                await conn.execute(f"TRUNCATE TABLE {table} CASCADE")
+            logger.info("Truncation complete.")
+
+            # Import CSV data
             results = await import_all_csvs(conn, skip_geolocation=True)
 
         total_rows = sum(results.values())
@@ -80,7 +105,7 @@ async def seed_database() -> SeedResponse:
         raise HTTPException(status_code=500, detail=f"Database seed failed: {str(e)}")
 
 
-@router.post("/rebuild", response_model=RebuildResponse)
+@router.post("/rebuild", response_model=RebuildResponse, dependencies=[Depends(verify_admin)])
 async def rebuild_embeddings() -> RebuildResponse:
     """
     Step 2: Generate schema embeddings using sentence-transformers.

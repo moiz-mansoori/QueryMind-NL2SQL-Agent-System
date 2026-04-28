@@ -45,6 +45,10 @@ services:
         value: "all-MiniLM-L6-v2"
       - key: EMBED_DIMENSION
         value: "384"
+      - key: GROQ_MODEL
+        value: "llama-3.3-70b-versatile"
+      - key: ADMIN_SECRET
+        sync: false # Set manually in Render dashboard
       - key: DATASET_DIR
         value: "/app/Dataset"
     healthCheckPath: /health

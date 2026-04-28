@@ -26,6 +26,7 @@ logger = logging.getLogger("querymind")
 # ── Groq API ─────────────────────────────────────────────
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+ADMIN_SECRET: str = os.getenv("ADMIN_SECRET", "super-secret-change-me")
 
 # ── PostgreSQL ───────────────────────────────────────────
 DB_HOST: str = os.getenv("DB_HOST", "localhost")
@@ -54,13 +55,15 @@ BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", "8000"))
 FRONTEND_HOST: str = os.getenv("FRONTEND_HOST", "0.0.0.0")
 FRONTEND_PORT: int = int(os.getenv("FRONTEND_PORT", "5000"))
 BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
+FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 # ── Paths ────────────────────────────────────────────────
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 DATASET_DIR: Path = Path(os.getenv("DATASET_DIR", str(PROJECT_ROOT / "Dataset")))
 
-# ── Known Schema (for validation) ────────────────────────
-KNOWN_TABLES: set = {
+# ── Known Schema (will be fetched dynamically) ──────────
+# We maintain this only as a fallback if DB discovery fails
+FALLBACK_KNOWN_TABLES: set = {
     "olist_customers",
     "olist_orders",
     "olist_order_items",

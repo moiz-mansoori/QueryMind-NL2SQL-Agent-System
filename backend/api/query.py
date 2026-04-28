@@ -8,7 +8,7 @@ invokes the LangGraph pipeline, and returns the structured result.
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from agents.graph import run_query
@@ -54,10 +54,14 @@ class QueryResponse(BaseModel):
     )
 
 
+from main import limiter
+
 # ── Route ────────────────────────────────────────────────
 
 @router.post("/query", response_model=QueryResponse)
+@limiter.limit("10/minute")
 async def execute_query(
+    request: Request,
     payload: QueryRequest,
     include_trace: bool = Query(
         default=False,

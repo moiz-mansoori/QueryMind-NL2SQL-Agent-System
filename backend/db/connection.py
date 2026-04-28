@@ -97,3 +97,23 @@ async def close_pool() -> None:
         logger.info("Connection pool closed")
     else:
         logger.warning("No connection pool to close")
+
+
+async def get_db_tables() -> set:
+    """
+    Fetch all user table names from the current database.
+    Used for dynamic schema discovery and validation.
+    """
+    try:
+        pool = await get_pool()
+        query = """
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+        """
+        rows = await pool.fetch(query)
+        return {row['table_name'] for row in rows}
+    except Exception as e:
+        logger.error("Failed to fetch database tables: %s", e)
+        # Fallback to empty set or handle in caller
+        return set()
