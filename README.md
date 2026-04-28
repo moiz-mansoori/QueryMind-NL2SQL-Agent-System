@@ -4,6 +4,10 @@ An AI-powered Natural Language to SQL agent that converts plain English question
 
 Built with **LangGraph** for agentic orchestration, **Groq** (Llama 3.3 70B) for LLM inference, and **pgvector** for semantic schema retrieval.
 
+### 🌐 Live Demo
+- **Frontend (Vercel)**: [https://query-mind-nl-2-sql-agent-system.vercel.app](https://query-mind-nl-2-sql-agent-system.vercel.app)
+- **Backend Health (Render)**: [https://querymind-backend-wbfj.onrender.com/health](https://querymind-backend-wbfj.onrender.com/health)
+
 ---
 
 ## ✨ Features
@@ -147,14 +151,18 @@ git push -u origin main
 
 #### Step 3: Seed the Database
 
-After Render deploys, you need to populate the database with the Olist dataset and schema embeddings. Connect to your Render PostgreSQL and run the seed scripts:
+#### Step 3: Seed the Database
+
+After Render deploys, you must populate the database using the secure admin endpoints.
 
 ```bash
-# Option 1: Use Render Shell (Dashboard → Web Service → Shell)
-python -c "import asyncio; from db.seed import main; asyncio.run(main())"
+# 1. Create tables and import CSV data (Step 1/2)
+curl -X POST https://YOUR-BACKEND-URL.onrender.com/embeddings/seed \
+  -H "x-api-key: YOUR_ADMIN_SECRET"
 
-# Option 2: Hit the API endpoint after deployment
-curl -X POST https://YOUR-BACKEND-URL.onrender.com/embeddings/rebuild
+# 2. Generate schema embeddings (Step 2/2)
+curl -X POST https://YOUR-BACKEND-URL.onrender.com/embeddings/rebuild \
+  -H "x-api-key: YOUR_ADMIN_SECRET"
 ```
 
 #### Step 4: Deploy Frontend to Vercel
@@ -309,9 +317,10 @@ venv\Scripts\python tests/benchmark/benchmark_queries.py
 
 ## 🔮 Future Improvements
 
-- [ ] Add authentication and rate limiting
+- [x] Add authentication (Admin Secret) and rate limiting
 - [ ] Support multiple database connections
 - [ ] Add query caching layer (Redis)
+- [x] Pre-download models in Docker for faster startup
 - [ ] Implement streaming responses for long-running queries
 - [ ] Add chart auto-generation from query results
 - [ ] Support for more SQL dialects (MySQL, SQLite)
