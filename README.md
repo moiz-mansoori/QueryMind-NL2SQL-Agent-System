@@ -24,6 +24,30 @@ Built with **LangGraph** for agentic orchestration, **Groq** (Llama 3.3 70B) for
 
 ---
 
+## 💡 Problem
+
+Most NL2SQL systems fail in real-world scenarios:
+
+- ❌ Wrong table selection
+- ❌ Broken joins
+- ❌ Syntax-valid but logically incorrect SQL
+- ❌ No visibility into *why* queries fail
+
+Result: unreliable outputs and zero trust.
+
+---
+
+## ⚡ Solution
+
+QueryMind is a **self-correcting AI agent system** that:
+
+- Generates SQL from natural language
+- Validates and executes queries safely
+- Automatically detects and fixes errors
+- Tracks full execution traces for debugging
+
+---
+
 ## 🏗️ Architecture
 
 ```mermaid
@@ -58,12 +82,36 @@ graph LR
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | Next.js 16, React 19, Tailwind CSS 4, Recharts, SWR |
+| **Frontend** | Next.js 15, React 19, Tailwind CSS, Recharts, SWR |
 | **Backend** | Python 3.12, FastAPI, LangGraph, Groq SDK |
 | **Database** | PostgreSQL 15 + pgvector |
 | **LLM** | Llama 3.3 70B Versatile (via Groq) |
 | **Embeddings** | all-MiniLM-L6-v2 (SentenceTransformers) |
-| **Deployment** | Vercel (Frontend) + Render (Backend + Database) |
+| **Deployment** | Vercel (Frontend) + Render (Backend) + Neon (PostgreSQL) |
+
+---
+
+## 📈 What Makes This Different
+
+This is **not just NL2SQL**.
+
+Most projects stop at:
+> text → SQL
+
+QueryMind goes further:
+- Detects failures
+- Fixes queries automatically
+- Tracks *why* failures happen
+
+👉 Focus is on **reliability, not just generation**
+
+---
+
+## ⚠️ Current Limitations
+
+- Complex multi-table joins can still fail
+- Schema retrieval depends on embedding quality
+- Cold start latency on Render free tier (~10-15s for first request after inactivity)
 
 ---
 
@@ -151,9 +199,7 @@ git push -u origin main
 
 #### Step 3: Seed the Database
 
-#### Step 3: Seed the Database
-
-After Render deploys, you must populate the database using the secure admin endpoints.
+After Render deploys, populate the database using the secure admin endpoints.
 
 ```bash
 # 1. Create tables and import CSV data (Step 1/2)
@@ -251,7 +297,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/query` | Submit a natural language question |
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Health check with database connectivity status |
 | `GET` | `/analytics/summary` | Aggregate metrics (total queries, success rate, etc.) |
 | `GET` | `/analytics/history?limit=50` | Recent query log entries |
 | `GET` | `/analytics/failures?limit=50` | Failed queries only |
@@ -259,7 +305,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | `GET` | `/analytics/trace/{query_id}` | Full execution trace for a specific query |
 | `GET` | `/analytics/daily-stats` | Per-day aggregated statistics |
 | `GET` | `/analytics/queries-per-day?days=7` | Queries per day for charts |
-| `POST` | `/embeddings/rebuild` | Regenerate schema embeddings |
+| `POST` | `/embeddings/rebuild` | Regenerate schema embeddings (admin) |
 
 ### Example Query
 
@@ -272,12 +318,12 @@ curl -X POST http://localhost:8000/query?include_trace=true \
 **Response:**
 ```json
 {
-  "answer": "There are 99,441 customers in the database.",
-  "sql": "SELECT COUNT(*) AS total_customers FROM olist_customers",
-  "rows": [{"total_customers": 99441}],
+  "answer": "There are 96,096 customers in the database.",
+  "sql": "SELECT COUNT(DISTINCT customer_unique_id) AS number_of_customers FROM olist_customers",
+  "rows": [{"number_of_customers": 96096}],
   "metrics": {
     "retries": 0,
-    "latency_ms": 2345.67,
+    "latency_ms": 7783.48,
     "success": true
   },
   "error": null,
@@ -323,7 +369,6 @@ venv\Scripts\python tests/benchmark/benchmark_queries.py
 - [x] Pre-download models in Docker for faster startup
 - [ ] Implement streaming responses for long-running queries
 - [ ] Add chart auto-generation from query results
-- [ ] Support for more SQL dialects (MySQL, SQLite)
 
 ---
 
