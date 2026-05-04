@@ -181,7 +181,7 @@ QUERY-MIND/
 git init
 git add .
 git commit -m "Initial commit: QueryMind NL2SQL Agent"
-git remote add origin https://github.com/YOUR_USERNAME/query-mind.git
+git remote add origin https://github.com/moiz-mansoori/QueryMind-NL2SQL-Agent-System.git
 git push -u origin main
 ```
 
