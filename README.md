@@ -244,7 +244,7 @@ curl -X POST https://YOUR-BACKEND-URL.onrender.com/embeddings/rebuild \
 #### Step 1: Clone & Configure
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/query-mind.git
+git clone https://github.com/moiz-mansoori/QueryMind-NL2SQL-Agent-System.git
 cd query-mind
 cp .env.example .env
 # Edit .env and add your GROQ_API_KEY
