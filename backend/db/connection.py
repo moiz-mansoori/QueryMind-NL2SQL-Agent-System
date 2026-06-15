@@ -45,11 +45,24 @@ async def create_pool() -> asyncpg.Pool:
         logger.warning("Connection pool already exists, returning existing pool")
         return _pool
 
+    # Parse the host from the URL to determine if we should enable SSL
+    from urllib.parse import urlparse
+    connect_kwargs = {}
+    try:
+        parsed = urlparse(DB_URL)
+        hostname = parsed.hostname or ""
+        # Enable SSL for non-local database hosts (e.g. Render, Neon)
+        if hostname.lower() not in ("localhost", "127.0.0.1", "postgres", "db", ""):
+            logger.info("Non-local database detected (%s), enabling SSL connection...", hostname)
+            connect_kwargs["ssl"] = True
+    except Exception as e:
+        logger.warning("Failed to parse DB_URL to determine SSL requirements: %s", e)
+
     try:
         # First, establish a temporary connection to ensure the vector extension exists.
         # This is required for managed databases (like Render) where init.sql doesn't run automatically.
         logger.info("Ensuring pgvector extension exists...")
-        conn = await asyncpg.connect(dsn=DB_URL)
+        conn = await asyncpg.connect(dsn=DB_URL, **connect_kwargs)
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
         await conn.close()
         
@@ -60,6 +73,7 @@ async def create_pool() -> asyncpg.Pool:
             max_size=DB_MAX_POOL_SIZE,
             init=_init_connection,
             command_timeout=60,
+            **connect_kwargs,
         )
         logger.info(
             "Connection pool created: %s (pool: %d-%d)",

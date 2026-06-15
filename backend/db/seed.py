@@ -288,7 +288,19 @@ async def create_connection() -> asyncpg.Connection:
     Returns:
         asyncpg.Connection: A direct database connection.
     """
-    conn = await asyncpg.connect(DB_URL)
+    from urllib.parse import urlparse
+    connect_kwargs = {}
+    try:
+        parsed = urlparse(DB_URL)
+        hostname = parsed.hostname or ""
+        # Enable SSL for non-local database hosts (e.g. Render, Neon)
+        if hostname.lower() not in ("localhost", "127.0.0.1", "postgres", "db", ""):
+            logger.info("Non-local database detected (%s), enabling SSL connection...", hostname)
+            connect_kwargs["ssl"] = True
+    except Exception as e:
+        logger.warning("Failed to parse DB_URL to determine SSL requirements: %s", e)
+
+    conn = await asyncpg.connect(DB_URL, **connect_kwargs)
     return conn
 
 
