@@ -57,8 +57,9 @@ def get_groq_client() -> AsyncGroq:
 async def preload_models():
     """Preload models in a separate thread to avoid blocking startup."""
     logger.info("Preloading models (Embedding + Groq)...")
-    # Preload SentenceTransformer in a thread pool
-    await asyncio.to_thread(get_embed_model)
+    # Lazy load SentenceTransformer to optimize memory and boot times.
+    # It will automatically load on the first query.
+    # await asyncio.to_thread(get_embed_model)
     # Init Groq client
     get_groq_client()
     logger.info("Models preloaded successfully.")

@@ -26,5 +26,5 @@ COPY Dataset/ ./Dataset/
 # Expose the port Render will use
 EXPOSE 8000
 
-# Start the FastAPI server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start the FastAPI server (uses shell form to dynamically bind to Render's $PORT)
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
