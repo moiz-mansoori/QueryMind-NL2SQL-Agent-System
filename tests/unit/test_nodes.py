@@ -3,6 +3,8 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from typing import Dict, Any
 
 from agents.nodes import (
+    query_classifier,
+    direct_responder,
     failure_handler,
     result_formatter,
     schema_retriever,
@@ -63,7 +65,7 @@ async def test_max_retries_triggers_failure_handler(base_state):
 # ── result_formatter ────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("agents.nodes.AsyncGroq")
+@patch("agents.nodes.utils.AsyncGroq")
 async def test_result_formatter_success(mock_async_groq, base_state):
     """Test successful natural language formatting."""
     mock_client = MagicMock()
@@ -82,7 +84,7 @@ async def test_result_formatter_success(mock_async_groq, base_state):
 
 
 @pytest.mark.asyncio
-@patch("agents.nodes.AsyncGroq")
+@patch("agents.nodes.utils.AsyncGroq")
 async def test_result_formatter_fallback(mock_async_groq, base_state):
     """Test result formatter falls back to raw data if LLM fails."""
     mock_client = MagicMock()
@@ -101,8 +103,8 @@ async def test_result_formatter_fallback(mock_async_groq, base_state):
 # ── schema_retriever ────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("agents.nodes.get_pool")
-@patch("agents.nodes.get_embed_model")
+@patch("agents.nodes.retriever.get_pool")
+@patch("agents.nodes.retriever.get_embed_model")
 async def test_schema_retriever_returns_schema(mock_embed, mock_pool, base_state):
     """Mock pgvector search, verify schema_retriever returns retrieved_schema."""
     import numpy as np
@@ -130,7 +132,7 @@ async def test_schema_retriever_returns_schema(mock_embed, mock_pool, base_state
 # ── sql_executor ────────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("agents.nodes.get_pool")
+@patch("agents.nodes.executor.get_pool")
 async def test_sql_executor_returns_results(mock_pool, base_state):
     """Mock asyncpg, verify sql_executor populates result_data on success."""
     base_state["generated_sql"] = "SELECT COUNT(*) AS cnt FROM olist_customers"
@@ -156,7 +158,7 @@ async def test_sql_executor_returns_results(mock_pool, base_state):
 
 
 @pytest.mark.asyncio
-@patch("agents.nodes.get_pool")
+@patch("agents.nodes.executor.get_pool")
 async def test_sql_executor_sets_error_on_failure(mock_pool, base_state):
     """Mock asyncpg to raise an error, verify executor captures it."""
     base_state["generated_sql"] = "SELECT * FROM olist_customers"
@@ -175,7 +177,7 @@ async def test_sql_executor_sets_error_on_failure(mock_pool, base_state):
 # ── sql_corrector ───────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("agents.nodes.AsyncGroq")
+@patch("agents.nodes.utils.AsyncGroq")
 async def test_retry_count_increments(mock_async_groq, base_state):
     """Verify sql_corrector increments retry_count each time it fires."""
     base_state["retry_count"] = 1
@@ -198,7 +200,7 @@ async def test_retry_count_increments(mock_async_groq, base_state):
 # ── query_logger ────────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("agents.nodes.get_pool")
+@patch("agents.nodes.logger.get_pool")
 async def test_query_logger_inserts_row(mock_pool, base_state):
     """Mock asyncpg, verify query_logger calls INSERT."""
     import time
@@ -238,3 +240,87 @@ async def test_trace_steps_populated():
     # Should now have 3 steps (2 prior + 1 from validator)
     assert len(result["trace_steps"]) == 3
     assert result["trace_steps"][2]["node"] == "sql_validator"
+
+
+# ── query_classifier ─────────────────────────────────────
+
+@pytest.mark.asyncio
+@patch("agents.nodes.utils.AsyncGroq")
+async def test_query_classifier_database_query(mock_async_groq, base_state):
+    """Test classification of a valid database query."""
+    base_state["user_question"] = "How many customers are there?"
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(message=MagicMock(content="database_query"))
+    ]
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    mock_async_groq.return_value = mock_client
+
+    result = await query_classifier(base_state)
+
+    assert result["intent"] == "database_query"
+    assert result["trace_steps"][0]["node"] == "query_classifier"
+    assert result["trace_steps"][0]["intent"] == "database_query"
+
+
+@pytest.mark.asyncio
+@patch("agents.nodes.utils.AsyncGroq")
+async def test_query_classifier_greeting(mock_async_groq, base_state):
+    """Test classification of a greeting."""
+    base_state["user_question"] = "Hello, how are you?"
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(message=MagicMock(content="greeting"))
+    ]
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    mock_async_groq.return_value = mock_client
+
+    result = await query_classifier(base_state)
+
+    assert result["intent"] == "greeting"
+    assert result["trace_steps"][0]["intent"] == "greeting"
+
+
+@pytest.mark.asyncio
+@patch("agents.nodes.utils.AsyncGroq")
+async def test_query_classifier_out_of_scope(mock_async_groq, base_state):
+    """Test classification of an out of scope question."""
+    base_state["user_question"] = "What is the capital of France?"
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(message=MagicMock(content="out_of_scope"))
+    ]
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    mock_async_groq.return_value = mock_client
+
+    result = await query_classifier(base_state)
+
+    assert result["intent"] == "out_of_scope"
+    assert result["trace_steps"][0]["intent"] == "out_of_scope"
+
+
+# ── direct_responder ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_direct_responder_greeting(base_state):
+    """Test direct response for a greeting intent."""
+    base_state["intent"] = "greeting"
+    result = await direct_responder(base_state)
+
+    assert result["success"] is True
+    assert "Database Copilot" in result["final_answer"]
+    assert result["trace_steps"][0]["node"] == "direct_responder"
+
+
+@pytest.mark.asyncio
+async def test_direct_responder_out_of_scope(base_state):
+    """Test direct response for an out_of_scope intent."""
+    base_state["intent"] = "out_of_scope"
+    result = await direct_responder(base_state)
+
+    assert result["success"] is True
+    assert "only answer questions related to the database schema" in result["final_answer"]
+    assert result["trace_steps"][0]["node"] == "direct_responder"

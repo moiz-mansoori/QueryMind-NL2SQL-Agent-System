@@ -90,6 +90,7 @@ class TestHappyPath:
         # Happy path order: schema_retriever -> sql_generator -> sql_validator
         #                    -> sql_executor -> result_formatter -> query_logger
         expected_nodes = [
+            "query_classifier",
             "schema_retriever",
             "sql_generator",
             "sql_validator",
@@ -250,3 +251,46 @@ class TestEdgeCases:
                 json={"question": "a" * 1001},
             )
             assert resp.status_code == 422
+
+
+class TestStreaming:
+    """Tests for the Server-Sent Events (SSE) streaming API endpoint."""
+
+    def test_query_streaming_events(self):
+        """Test that streaming yields a series of node_complete events followed by complete."""
+        events = []
+        with httpx.Client(timeout=TIMEOUT) as client:
+            with client.stream(
+                "GET",
+                f"{API_BASE}/query/stream",
+                params={"question": "How many customers are there in the database?"},
+            ) as response:
+                assert response.status_code == 200
+                assert "text/event-stream" in response.headers.get("content-type", "")
+                
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[len("data: "):].strip()
+                        if data_str:
+                            event = json.loads(data_str)
+                            events.append(event)
+        
+        # Verify events structure
+        assert len(events) >= 2
+        
+        # Intermediate events should be node_complete
+        node_events = [e for e in events if e.get("type") == "node_complete"]
+        assert len(node_events) > 0
+        for ev in node_events:
+            assert "node" in ev
+            assert "trace_steps" in ev
+            assert "duration_ms" in ev
+
+        # The final event should be complete
+        complete_event = events[-1]
+        assert complete_event["type"] == "complete"
+        assert "answer" in complete_event
+        assert "sql" in complete_event
+        assert "rows" in complete_event
+        assert "metrics" in complete_event
+

@@ -15,11 +15,12 @@ Built with **LangGraph** for agentic orchestration, **Groq** (Llama 3.3 70B) for
 | Feature | Description |
 |---------|-------------|
 | 🧠 **Natural Language Queries** | Ask questions in plain English — the agent writes, validates, and executes SQL for you |
-| 🔄 **Self-Correction Loop** | If SQL fails, the agent automatically corrects and retries up to 3 times |
+| ⚡ **Real-Time SSE Streaming** | Tracks node execution durations and streams steps to the UI via Server-Sent Events (SSE) |
+| 🔄 **Self-Correction Loop & Replay** | Automatically corrects failed SQL. Replays failures vs corrected queries side-by-side in the UI |
 | 🛡️ **SQL Safety Validator** | Blocks dangerous DDL/DML (DROP, DELETE, UPDATE, etc.) before execution |
-| 📊 **Observability Dashboard** | Real-time metrics, query history, and execution trace replay |
+| 📊 **Interactive Execution Graph** | Custom SVG visualizer mapping active, successful, errored, and skipped node paths in real time |
 | 🔍 **Semantic Schema Retrieval** | Uses pgvector embeddings to find relevant tables/columns for each question |
-| 📈 **Analytics API** | Success rates, latency tracking, daily stats, and failure analysis |
+| 📈 **Analytics API & Dashboard** | Success rates, latency tracking, daily stats, and failure analysis |
 | ⚡ **95% Benchmark Accuracy** | Tested against 20 real-world business queries with ~3s avg latency |
 
 ---
@@ -50,31 +51,19 @@ QueryMind is a **self-correcting AI agent system** that:
 
 ## 🏗️ Architecture
 
-```mermaid
-graph LR
-    A[User Question] --> B[Schema Retriever]
-    B --> C[SQL Generator]
-    C --> D[SQL Validator]
-    D -->|Valid| E[SQL Executor]
-    D -->|Invalid| F[SQL Corrector]
-    E -->|Success| G[Result Formatter]
-    E -->|Error| F
-    F -->|Retry ≤ 3| D
-    F -->|Retry > 3| H[Failure Handler]
-    G --> I[Query Logger]
-    H --> I
-    I --> J[API Response]
-```
+![QueryMind Architecture](assets/architecture.svg)
 
-**8-Node LangGraph Pipeline:**
-1. **Schema Retriever** — Vector search for relevant schema context via pgvector
-2. **SQL Generator** — LLM generates PostgreSQL query using Groq API
-3. **SQL Validator** — Syntax check (sqlglot) + safety check + table existence
-4. **SQL Executor** — Runs validated SQL against PostgreSQL
-5. **SQL Corrector** — LLM fixes broken SQL with error context (retry loop)
-6. **Failure Handler** — Graceful termination after max retries
-7. **Result Formatter** — LLM converts raw data to natural language answer
-8. **Query Logger** — Persists full execution trace for analytics
+**10-Node LangGraph Pipeline:**
+1. **Query Classifier** — Uses Groq to interpret user intent. Routes simple greetings directly to response nodes or complex queries to database schema retrievers.
+2. **Direct Responder** — Formulates instant feedback bypassing database loops for out-of-scope prompts or greetings.
+3. **Schema Retriever** — Utilizes SentenceTransformers embeddings and pgvector cosine distance search to locate relevant tables/columns based on question context.
+4. **SQL Generator** — Compiles instructions into raw ANSI SQL templates.
+5. **SQL Validator** — Uses `sqlglot` to catch syntax errors and enforces strict security rules to prevent DDL/DML injections.
+6. **SQL Corrector (Feedback Loop)** — Catching errors from the validator/executor, it loops back to correct the SQL with detailed LLM error messages (retrying up to 3 times).
+7. **SQL Executor** — Dispatches queries safely against PostgreSQL.
+8. **Failure Handler** — Gracefully handles errors that fail to self-correct.
+9. **Result Formatter** — LLM converts raw data to natural language answer.
+10. **Query Logger** — Persists full execution trace, latencies, and metadata for analytics.
 
 ---
 
@@ -93,27 +82,13 @@ graph LR
 
 ## 📈 What Makes This Different
 
-This is **not just NL2SQL**.
+This is designed for enterprise-grade database integration:
 
-Most projects stop at:
-> text → SQL
+- **Observability**: Exposes detailed execution metrics and intermediate state traces.
+- **Resilience**: Bypasses syntax errors dynamically with LLM corrective feedback loops.
+- **Safety Guarantee**: Enforces active sqlglot validators preventing dangerous DDL/DML execution.
 
-QueryMind goes further:
-- Detects failures
-- Fixes queries automatically
-- Tracks *why* failures happen
 
-👉 Focus is on **reliability, not just generation**
-
----
-
-## ⚠️ Current Limitations
-
-- Complex multi-table joins can still fail
-- Schema retrieval depends on embedding quality
-- Cold start latency on Render free tier (~10-15s for first request after inactivity)
-
----
 
 ## 📁 Project Structure
 
@@ -122,10 +97,19 @@ QUERY-MIND/
 ├── backend/
 │   ├── agents/
 │   │   ├── graph.py          # LangGraph StateGraph definition
-│   │   ├── nodes.py          # All 8 pipeline nodes
+│   │   ├── nodes/            # Directory of modular LangGraph nodes
+│   │   │   ├── classifier.py
+│   │   │   ├── retriever.py
+│   │   │   ├── generator.py
+│   │   │   ├── validator.py
+│   │   │   ├── executor.py
+│   │   │   ├── corrector.py
+│   │   │   ├── formatter.py
+│   │   │   ├── logger.py
+│   │   │   └── utils.py
 │   │   └── state.py          # QueryState TypedDict
 │   ├── api/
-│   │   ├── query.py          # POST /query endpoint
+│   │   ├── query.py          # POST /query & GET /query/stream endpoints
 │   │   ├── analytics.py      # GET /analytics/* endpoints
 │   │   └── embeddings.py     # POST /embeddings/rebuild
 │   ├── db/
@@ -149,12 +133,14 @@ QUERY-MIND/
 │   │   │   ├── ResultTable.tsx   # Data table component
 │   │   │   ├── SqlBlock.tsx      # SQL syntax display
 │   │   │   ├── MetricCard.tsx    # Metric badge component
-│   │   │   ├── TraceViewer.tsx   # Execution trace replay
+│   │   │   ├── PipelineStepper.tsx # [NEW] Real-time steps indicator
+│   │   │   ├── CorrectionReplay.tsx # [NEW] Side-by-side SQL diff
+│   │   │   ├── AgentExecutionGraph.tsx # [NEW] Custom SVG workflow path
 │   │   │   ├── Sidebar.tsx       # Navigation sidebar
 │   │   │   ├── SlideOver.tsx     # Slide-over panel
 │   │   │   └── charts/          # Recharts components
 │   │   └── lib/
-│   │       ├── api.ts           # API client functions
+│   │       ├── api.ts           # API client functions (streamQuery)
 │   │       └── types.ts         # TypeScript interfaces
 │   ├── package.json
 │   └── next.config.ts
@@ -297,6 +283,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/query` | Submit a natural language question |
+| `GET` | `/query/stream?question=...` | Stream live LangGraph node-complete execution states and durations via SSE |
 | `GET` | `/health` | Health check with database connectivity status |
 | `GET` | `/analytics/summary` | Aggregate metrics (total queries, success rate, etc.) |
 | `GET` | `/analytics/history?limit=50` | Recent query log entries |
@@ -352,7 +339,7 @@ Tested across 5 categories: Simple SELECT, GROUP BY/Aggregation, JOIN, Date Filt
 # Unit Tests (29 tests)
 venv\Scripts\pytest tests/unit/ -v
 
-# Integration Tests (16 tests — requires running backend)
+# Integration Tests (17 tests — requires running backend)
 venv\Scripts\pytest tests/integration/ -v
 
 # Benchmark (20 queries — requires running backend)
@@ -367,8 +354,16 @@ venv\Scripts\python tests/benchmark/benchmark_queries.py
 - [ ] Support multiple database connections
 - [ ] Add query caching layer (Redis)
 - [x] Pre-download models in Docker for faster startup
-- [ ] Implement streaming responses for long-running queries
+- [x] Implement streaming responses for long-running queries
 - [ ] Add chart auto-generation from query results
+
+---
+
+## ⚠️ Future Challenges & Limitations
+
+- Complex multi-table joins can still fail.
+- Schema retrieval accuracy depends on vector embedding quality.
+- Cold start latency exists on the Render free tier host (~10-15s for first request after inactivity).
 
 ---
 

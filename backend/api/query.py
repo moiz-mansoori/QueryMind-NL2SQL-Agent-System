@@ -9,9 +9,12 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
+import json
 
-from agents.graph import run_query
+from agents.graph import run_query, run_query_stream
 
 logger = logging.getLogger("querymind.api.query")
 
@@ -114,3 +117,29 @@ async def execute_query(
         error=error_msg,
         trace_steps=trace,
     )
+
+
+@router.get("/query/stream")
+@limiter.limit("10/minute")
+async def execute_query_stream(
+    request: Request,
+    question: str = Query(..., description="The natural language question to execute.")
+):
+    """
+    Execute the query via LangGraph and stream back the intermediate node updates 
+    as Server-Sent Events (SSE).
+    """
+    logger.info("API /query/stream received: %s", question[:120])
+    
+    async def event_generator():
+        try:
+            async for event in run_query_stream(question):
+                # Use jsonable_encoder to safely serialize Decimals, datetimes, etc.
+                sanitized_event = jsonable_encoder(event)
+                yield f"data: {json.dumps(sanitized_event)}\n\n"
+        except Exception as e:
+            logger.error("Error in streaming response generator: %s", e)
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+

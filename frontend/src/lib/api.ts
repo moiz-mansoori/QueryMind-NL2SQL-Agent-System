@@ -76,3 +76,35 @@ export async function fetchTrace(
   if (!res.ok) throw new Error("Failed to fetch trace");
   return res.json();
 }
+
+export function streamQuery(
+  question: string,
+  onEvent: (event: any) => void,
+  onError: (err: any) => void
+): () => void {
+  const url = `${API_URL}/query/stream?question=${encodeURIComponent(question)}`;
+  const eventSource = new EventSource(url);
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      onEvent(data);
+      if (data.event === "complete" || data.event === "error") {
+        eventSource.close();
+      }
+    } catch (err) {
+      onError(err);
+      eventSource.close();
+    }
+  };
+
+  eventSource.onerror = (err) => {
+    onError(new Error("EventSource connection failed"));
+    eventSource.close();
+  };
+
+  return () => {
+    eventSource.close();
+  };
+}
+

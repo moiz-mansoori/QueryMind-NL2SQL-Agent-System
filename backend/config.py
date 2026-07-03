@@ -45,6 +45,11 @@ DB_MAX_POOL_SIZE: int = int(os.getenv("DB_MAX_POOL_SIZE", "10"))
 MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
 RESULT_LIMIT: int = int(os.getenv("RESULT_LIMIT", "500"))
 
+# ── Rate Limiting ────────────────────────────────────────
+# TESTING=true disables the rate limiter (useful in CI / integration tests)
+TESTING: bool = os.getenv("TESTING", "false").lower() == "true"
+RATE_LIMIT: str = os.getenv("RATE_LIMIT", "10/minute")
+
 # ── Embedding Model ─────────────────────────────────────
 EMBED_MODEL: str = os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2")
 EMBED_DIMENSION: int = int(os.getenv("EMBED_DIMENSION", "384"))

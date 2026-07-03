@@ -17,7 +17,7 @@ def base_state() -> Dict[str, Any]:
     }
 
 @pytest.mark.asyncio
-@patch("agents.nodes.AsyncGroq")
+@patch("agents.nodes.utils.AsyncGroq")
 async def test_sql_generator_success(mock_async_groq, base_state):
     """Test successful SQL generation with mocked Groq client."""
     # Setup mock response
@@ -40,7 +40,7 @@ async def test_sql_generator_success(mock_async_groq, base_state):
     assert result["trace_steps"][0]["node"] == "sql_generator"
 
 @pytest.mark.asyncio
-@patch("agents.nodes.AsyncGroq")
+@patch("agents.nodes.utils.AsyncGroq")
 async def test_sql_generator_api_failure(mock_async_groq, base_state):
     """Test SQL generation gracefully handles API failures."""
     # Setup mock to raise an exception
@@ -55,7 +55,7 @@ async def test_sql_generator_api_failure(mock_async_groq, base_state):
     assert result["trace_steps"][0]["status"] == "error"
 
 @pytest.mark.asyncio
-@patch("agents.nodes.AsyncGroq")
+@patch("agents.nodes.utils.AsyncGroq")
 async def test_sql_generator_with_empty_schema(mock_async_groq, base_state):
     """Test SQL generation still functions without retrieved schema."""
     base_state["retrieved_schema"] = {}
@@ -75,7 +75,7 @@ async def test_sql_generator_with_empty_schema(mock_async_groq, base_state):
 
 
 @pytest.mark.asyncio
-@patch("agents.nodes.AsyncGroq")
+@patch("agents.nodes.utils.AsyncGroq")
 async def test_prompt_contains_schema_context(mock_async_groq, base_state):
     """Verify that the schema context is embedded in the system prompt sent to Groq."""
     mock_client = MagicMock()
@@ -103,7 +103,7 @@ async def test_prompt_contains_schema_context(mock_async_groq, base_state):
 
 
 @pytest.mark.asyncio
-@patch("agents.nodes.AsyncGroq")
+@patch("agents.nodes.utils.AsyncGroq")
 async def test_prompt_contains_user_question(mock_async_groq, base_state):
     """Verify that the user's question appears in the user prompt sent to Groq."""
     mock_client = MagicMock()

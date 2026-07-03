@@ -196,15 +196,15 @@ IMPORT_ORDER = [
 
 # Schema descriptions for embedding generation
 TABLE_DESCRIPTIONS = {
-    "olist_customers": "Customer information including unique customer ID, location (city, state, zip code). Used to identify buyers and their geographic distribution.",
-    "olist_orders": "Order records with status tracking, timestamps for purchase, approval, carrier delivery, customer delivery, and estimated delivery date. Central table linking customers to their purchases.",
-    "olist_order_items": "Individual items within each order, linking to products and sellers. Contains price and freight value for each item. One order can have multiple items.",
-    "olist_products": "Product catalog with category, physical dimensions (weight, length, height, width), description length, and photo count. Linked from order items.",
-    "olist_sellers": "Seller information including location (city, state, zip code). Sellers fulfill orders through the marketplace.",
-    "olist_order_payments": "Payment details for each order including payment method (credit card, boleto, voucher, debit card), number of installments, and payment value.",
-    "olist_order_reviews": "Customer reviews for orders with a score (1-5), optional comment title and message, and timestamps for review creation and answer.",
-    "olist_geolocation": "Brazilian zip code geolocation data with latitude and longitude coordinates, city and state. Used for geographic analysis of customers and sellers.",
-    "product_category_translation": "Translation table mapping Portuguese product category names to English. Useful for understanding product categories in English.",
+    "olist_customers": "Customer information including unique customer ID, location (city, state, zip code). Used to identify buyers and their geographic distribution. JOINS: Can be joined with olist_orders ON olist_customers.customer_id = olist_orders.customer_id.",
+    "olist_orders": "Order records with status tracking, timestamps for purchase, approval, carrier delivery, customer delivery, and estimated delivery date. Central table linking customers to their purchases. JOINS: Joins with olist_customers ON customer_id, olist_order_items ON order_id, olist_order_payments ON order_id, olist_order_reviews ON order_id.",
+    "olist_order_items": "Individual items within each order, linking to products and sellers. Contains price and freight value for each item. One order can have multiple items. JOINS: Joins with olist_orders ON order_id, olist_products ON product_id, and olist_sellers ON seller_id.",
+    "olist_products": "Product catalog with category, physical dimensions (weight, length, height, width), description length, and photo count. Linked from order items. JOINS: Joins with olist_order_items ON product_id, and product_category_translation ON product_category_name.",
+    "olist_sellers": "Seller information including location (city, state, zip code). Sellers fulfill orders through the marketplace. JOINS: Joins with olist_order_items ON seller_id.",
+    "olist_order_payments": "Payment details for each order including payment method (credit card, boleto, voucher, debit card), number of installments, and payment value. JOINS: Joins with olist_orders ON order_id.",
+    "olist_order_reviews": "Customer reviews for orders with a score (1-5), optional comment title and message, and timestamps for review creation and answer. JOINS: Joins with olist_orders ON order_id.",
+    "olist_geolocation": "Brazilian zip code geolocation data with latitude and longitude coordinates, city and state. Used for geographic analysis of customers and sellers. JOINS: Can join with olist_customers ON geolocation_zip_code_prefix = customer_zip_code_prefix, or olist_sellers ON geolocation_zip_code_prefix = seller_zip_code_prefix.",
+    "product_category_translation": "Translation table mapping Portuguese product category names to English. Useful for understanding product categories in English. JOINS: Joins with olist_products ON product_category_name.",
 }
 
 COLUMN_DESCRIPTIONS = {

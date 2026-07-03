@@ -13,6 +13,9 @@ class QueryState(TypedDict):
     # Inputs
     user_question: str
     
+    # Classification
+    intent: Optional[str]
+    
     # Retrieval Phase
     retrieved_schema: Dict[str, Any]
     
