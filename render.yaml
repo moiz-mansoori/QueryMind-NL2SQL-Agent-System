@@ -46,7 +46,7 @@ services:
       - key: EMBED_DIMENSION
         value: "384"
       - key: GROQ_MODEL
-        value: "llama-3.3-70b-versatile"
+        value: "openai/gpt-oss-120b"
       - key: ADMIN_SECRET
         sync: false # Set manually in Render dashboard
       - key: DATASET_DIR
